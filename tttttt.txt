@@ -1,55 +1,183 @@
-The screenshot confirms the replacement key works because the direct SSH test returned:
+Run this consolidated fix
 
-Plain Text
-avdlm-dev-01
-
-The connector is hanging because it is being run inside PowerShell ISE, shown by the bottom message Running script / selection. Native SSH processes can hang when their output is captured by PowerShell ISE.
-
-Fix: run the connector in normal PowerShell
-1. Stop the current ISE execution
-
-Press:
-
-Plain Text
-Ctrl+Break
-
-If that does not stop it, press:
-
-Plain Text
-Ctrl+C
-2. Launch the connector in a normal PowerShell window
-
-Paste this single line into the current console:
+Close the Microsoft error page. In regular Windows PowerShell, paste this entire block:
 
 PowerShell
-Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',"$HOME\Downloads\AVDLM-Personal-Laptop-Connect.ps1",'-StopExistingTunnel'
-
-A separate standard PowerShell window will open and run the connector.
-
-Expected progress
+$VmIp = "20.198.74.107"
+$Key = "$HOME\.ssh\avdlm-dev-01-key-v2"
+ 
+$Fix = @'
+set -Eeuo pipefail
+ 
+cd "$HOME/avdlm-saas-platform"
+ 
+STAMP="$(date +%Y%m%d-%H%M%S)"
+BACKUP="/tmp/azure-consent-fix-$STAMP"
+ 
+mkdir -p "$BACKUP"
+cp apps/api/src/azure-connect.ts "$BACKUP/azure-connect.ts"
+cp apps/api/src/server.ts "$BACKUP/server.ts"
+ 
+echo "Backup: $BACKUP"
+ 
+python3 - <<'PY'
+from pathlib import Path
+import re
+ 
+path = Path("apps/api/src/azure-connect.ts")
+text = path.read_text(encoding="utf-8")
+ 
+old_pattern = re.compile(
+r'consentUrl\.searchParams\.set\(\s*'
+r'"scope",\s*'
+r'\[\s*'
+r'`api://\$\{clientId\}/\.default`,\s*'
+r'"https://management\.azure\.com/"\s*\+\s*'
+r'"user_impersonation",\s*'
+r'\]\.join\(" "\),\s*'
+r'\);',
+re.MULTILINE,
+)
+ 
+replacement = '''consentUrl.searchParams.set(
+"scope",
+"https://management.azure.com/.default",
+);'''
+ 
+text, count = old_pattern.subn(replacement, text, count=1)
+ 
+if count == 0:
+# Support the compact form if formatting differs.
+start = text.find('consentUrl.searchParams.set(\n "scope",')
+end_marker = '\n );'
+ 
+if start == -1:
+raise SystemExit("Could not locate the consent scope block.")
+ 
+end = text.find(end_marker, start)
+ 
+if end == -1:
+raise SystemExit("Could not locate the end of the consent scope block.")
+ 
+end += len(end_marker)
+ 
+text = (
+text[:start]
++ replacement
++ text[end:]
+)
+ 
+path.write_text(text, encoding="utf-8")
+print("Azure admin-consent scope corrected.")
+PY
+ 
+echo
+echo "===== VERIFY CONSENT SCOPE ====="
+ 
+grep -n -A4 -B2 \
+'"https://management.azure.com/.default"' \
+apps/api/src/azure-connect.ts
+ 
+if grep -n \
+'management.azure.com/user_impersonation' \
+apps/api/src/azure-connect.ts
+then
+echo "ERROR: Invalid resource-specific scope remains."
+cp "$BACKUP/azure-connect.ts" apps/api/src/azure-connect.ts
+exit 1
+fi
+ 
+echo
+echo "===== COMPILE API ====="
+ 
+docker run --rm \
+--user "$(id -u):$(id -g)" \
+-e HOME=/tmp \
+-v "$HOME/avdlm-saas-platform/apps/api:/workspace" \
+-w /workspace \
+node:22-alpine \
+npm run build
+ 
+git diff --check
+ 
+echo
+echo "===== REBUILD API ====="
+ 
+docker compose build api
+docker compose up -d --force-recreate api
+ 
+sleep 12
+ 
+echo
+echo "===== HEALTH CHECK ====="
+ 
+docker compose ps
+ 
+curl -fsS \
+--max-time 20 \
+http://127.0.0.1:8080/health
+ 
+echo
+ 
+AUTH_STATUS="$(
+curl -sS \
+-o /tmp/auth-check.json \
+-w '%{http_code}' \
+http://127.0.0.1:8080/api/v1/me
+)"
+ 
+echo "Unauthenticated protected API status: HTTP $AUTH_STATUS"
+ 
+if [ "$AUTH_STATUS" != "401" ]; then
+echo "ERROR: Expected HTTP 401."
+cat /tmp/auth-check.json
+exit 1
+fi
+ 
+echo
+echo "SUCCESS: Azure consent request corrected."
+echo "Backup: $BACKUP"
+'@
+ 
+$Fix |
+ssh.exe -T `
+-o ConnectTimeout=20 `
+-o ServerAliveInterval=30 `
+-o ServerAliveCountMax=6 `
+-i $Key `
+"azureuser@$VmIp" `
+"tr -d '\r' | bash -s"
+ 
+if ($LASTEXITCODE -ne 0) {
+throw "Azure consent fix failed with exit code $LASTEXITCODE"
+}
+ 
+Write-Host "Azure consent fix completed successfully."
+Expected completion
 Plain Text
-==> Checking OpenSSH
-==> Checking SSH private key
-==> Stopping stale AVDLM SSH tunnels
-==> Testing SSH access
-avdlm-dev-01
-==> Starting and validating services on the Linux VM
-==> Starting SSH tunnel
-==> Validating the portal through the tunnel
+Azure admin-consent scope corrected.
+API health: status ok
+Unauthenticated protected API status: HTTP 401
+SUCCESS: Azure consent request corrected.
+Retry Connect Azure
+Return to the lifecycle portal.
+Press Ctrl+F5.
+Open Microsoft Azure.
+Select Connect Azure again.
+Sign in with the organizational onmicrosoft.com account.
+Review the Azure Management permission and accept it.
 
-Expected completion:
+The old consent URL must not be reused because the invalid scopes are embedded in that URL. Start the process again from the portal button.
+
+Azure app-registration check
+
+In AVD Lifecycle Manager API → API permissions, verify:
 
 Plain Text
-READY
-Portal: http://localhost:4173/#/integrations/azure
-API health: http://localhost:8080/health
-If the new window closes immediately
+Azure Service Management
+user_impersonation
+Delegated
 
-Run it from Windows Terminal or regular PowerShell, not PowerShell ISE:
+For the admin-consent endpoint, https://management.azure.com/.default means “consent to the Azure Management permissions statically configured on this app registration.” Microsoft documents that admin consent can use either /.default or dynamic scopes, but the request should not mix incompatible resource scope forms.
 
-PowerShell
-cd "$HOME\Downloads"
-Set-ExecutionPolicy -Scope Process Bypass -Force
-.\AVDLM-Personal-Laptop-Connect.ps1 -StopExistingTunnel
-
-Your SSH access and key-v2 are already correct. No more Azure key changes are needed.
+If the next screen says Need admin approval, sign in using an administrator of the personal Microsoft Entra tenant. Tenant consent policies can require administrator approval even for delegated permissions.
