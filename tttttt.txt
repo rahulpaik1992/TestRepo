@@ -1,3 +1,6 @@
+New-Item -ItemType Directory -Path "$HOME\.ssh" -Force | Out-Null; ssh-keygen.exe -t ed25519 -f "$HOME\.ssh\avdlm-dev-01-key-v2" -N '""' -C "avdlm-dev-01-key-v2"
+
+
 Required first: rotate the exposed key
 
 The old key was uploaded to GitHub, so this script intentionally expects:
