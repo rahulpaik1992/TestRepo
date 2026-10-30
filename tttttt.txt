@@ -1,24 +1,41 @@
-Test the new key
-
-Run this from the personal laptop:
-
-PowerShell
-ssh.exe -o ConnectTimeout=20 -o ConnectionAttempts=1 -o StrictHostKeyChecking=accept-new -i "$HOME\.ssh\avdlm-dev-01-key-v2" azureuser@20.198.74.107 "hostname"
-
-Expected output:
+The screenshot confirms the replacement key works because the direct SSH test returned:
 
 Plain Text
 avdlm-dev-01
-Run the new connector
 
-After the hostname test succeeds:
+The connector is hanging because it is being run inside PowerShell ISE, shown by the bottom message Running script / selection. Native SSH processes can hang when their output is captured by PowerShell ISE.
+
+Fix: run the connector in normal PowerShell
+1. Stop the current ISE execution
+
+Press:
+
+Plain Text
+Ctrl+Break
+
+If that does not stop it, press:
+
+Plain Text
+Ctrl+C
+2. Launch the connector in a normal PowerShell window
+
+Paste this single line into the current console:
 
 PowerShell
-cd "$HOME\Downloads"
- 
-Set-ExecutionPolicy -Scope Process Bypass -Force
- 
-.\AVDLM-Personal-Laptop-Connect.ps1 -StopExistingTunnel
+Start-Process powershell.exe -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',"$HOME\Downloads\AVDLM-Personal-Laptop-Connect.ps1",'-StopExistingTunnel'
+
+A separate standard PowerShell window will open and run the connector.
+
+Expected progress
+Plain Text
+==> Checking OpenSSH
+==> Checking SSH private key
+==> Stopping stale AVDLM SSH tunnels
+==> Testing SSH access
+avdlm-dev-01
+==> Starting and validating services on the Linux VM
+==> Starting SSH tunnel
+==> Validating the portal through the tunnel
 
 Expected completion:
 
@@ -26,5 +43,13 @@ Plain Text
 READY
 Portal: http://localhost:4173/#/integrations/azure
 API health: http://localhost:8080/health
+If the new window closes immediately
 
-Do not select Generate new key pair, because Azure would create another private key and complicate the rotation. Also do not delete the old authorized key until the new key-v2 successfully connects.
+Run it from Windows Terminal or regular PowerShell, not PowerShell ISE:
+
+PowerShell
+cd "$HOME\Downloads"
+Set-ExecutionPolicy -Scope Process Bypass -Force
+.\AVDLM-Personal-Laptop-Connect.ps1 -StopExistingTunnel
+
+Your SSH access and key-v2 are already correct. No more Azure key changes are needed.
