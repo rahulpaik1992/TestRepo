@@ -1,40 +1,24 @@
-New-Item -ItemType Directory -Path "$HOME\.ssh" -Force | Out-Null; ssh-keygen.exe -t ed25519 -f "$HOME\.ssh\avdlm-dev-01-key-v2" -N '""' -C "avdlm-dev-01-key-v2"
+Test the new key
 
-
-Required first: rotate the exposed key
-
-The old key was uploaded to GitHub, so this script intentionally expects:
-
-Plain Text
-C:\Users\rahul\.ssh\avdlm-dev-01-key-v2
-
-Do not continue using:
-
-Plain Text
-avdlm-dev-01-key.pem
-
-After applying the replacement public key to avdlm-dev-01, copy the new private key to:
+Run this from the personal laptop:
 
 PowerShell
-New-Item -ItemType Directory -Path "$HOME\.ssh" -Force | Out-Null
-Copy-Item -LiteralPath "$HOME\Downloads\avdlm-dev-01-key-v2" -Destination "$HOME\.ssh\avdlm-dev-01-key-v2" -Force
+ssh.exe -o ConnectTimeout=20 -o ConnectionAttempts=1 -o StrictHostKeyChecking=accept-new -i "$HOME\.ssh\avdlm-dev-01-key-v2" azureuser@20.198.74.107 "hostname"
+
+Expected output:
+
+Plain Text
+avdlm-dev-01
 Run the new connector
+
+After the hostname test succeeds:
+
 PowerShell
 cd "$HOME\Downloads"
  
 Set-ExecutionPolicy -Scope Process Bypass -Force
  
 .\AVDLM-Personal-Laptop-Connect.ps1 -StopExistingTunnel
-What the corrected script does
-Checks OpenSSH without misinterpreting version output as an error
-Requires the rotated replacement key
-Tests SSH with a 20-second timeout
-Starts the Docker services on the Linux VM
-Validates the remote API
-Removes stale AVDLM tunnels when requested
-Opens tunnels for ports 4173 and 8080
-Validates the API and portal locally
-Opens the Azure integration page
 
 Expected completion:
 
@@ -43,4 +27,4 @@ READY
 Portal: http://localhost:4173/#/integrations/azure
 API health: http://localhost:8080/health
 
-If SSH still fails, the script will report a real failure instead of stopping on harmless warning output.
+Do not select Generate new key pair, because Azure would create another private key and complicate the rotation. Also do not delete the old authorized key until the new key-v2 successfully connects.
